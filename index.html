@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Заказы OrderBook</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-secondary-bg-color, #F3F4F7);
+    --card: var(--tg-theme-bg-color, #FFFFFF);
+    --text: var(--tg-theme-text-color, #1F2430);
+    --muted: var(--tg-theme-hint-color, #6B7280);
+    --accent: var(--tg-theme-button-color, #E8692C);
+    --accent-text: var(--tg-theme-button-text-color, #FFFFFF);
+    --line: color-mix(in srgb, var(--muted) 25%, transparent);
+    --ok: #1E8E3E; --ok-bg: color-mix(in srgb, #1E8E3E 14%, transparent);
+    --wait: #B26A00; --wait-bg: color-mix(in srgb, #E8A23A 18%, transparent);
+    --late: #C5221F; --late-bg: color-mix(in srgb, #C5221F 14%, transparent);
+    --give: #1A5FB4; --give-bg: color-mix(in srgb, #2F6FDE 15%, transparent);
+    --no: var(--muted); --no-bg: color-mix(in srgb, var(--muted) 14%, transparent);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 12px 16px 8px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .totals { background: var(--card); border-radius: 12px; padding: 10px 12px; margin: 8px 12px; font-size: 14px; }
+  .totals b { font-size: 16px; }
+  .filters { display: flex; gap: 6px; padding: 4px 12px 8px; overflow-x: auto; }
+  .chip { border: 0; border-radius: 16px; padding: 6px 12px; background: var(--card); color: var(--text); font-size: 13px; white-space: nowrap; }
+  .chip.on { background: var(--accent); color: var(--accent-text); }
+  .card { background: var(--card); border-radius: 12px; margin: 8px 12px; padding: 10px 12px; }
+  .card.click { cursor: pointer; }
+  .name { font-weight: 700; font-size: 16px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .b { font-size: 12px; font-weight: 600; border-radius: 6px; padding: 2px 7px; }
+  .ok { color: var(--ok); background: var(--ok-bg); } .wait { color: var(--wait); background: var(--wait-bg); }
+  .late { color: var(--late); background: var(--late-bg); } .give { color: var(--give); background: var(--give-bg); }
+  .no { color: var(--no); background: var(--no-bg); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td { padding: 3px 0; } td.r { text-align: right; white-space: nowrap; } td.m { color: var(--muted); text-align: right; padding-right: 10px; white-space: nowrap; }
+  .sec { font-size: 12px; font-weight: 700; color: var(--accent); text-transform: uppercase; margin: 10px 0 4px; }
+  .big { font-size: 17px; font-weight: 700; margin-top: 8px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 12px 20px; }
+  .btn { flex: 1 1 45%; border: 0; border-radius: 10px; padding: 11px 8px; font-size: 15px; font-weight: 600; background: var(--accent); color: var(--accent-text); }
+  .btn.sec2 { background: var(--card); color: var(--text); border: 1px solid var(--line); }
+  .btn.ok2 { background: #1E8E3E; color: #fff; } .btn.give2 { background: #1A5FB4; color: #fff; }
+  .back { border: 0; background: none; color: var(--accent); font-size: 15px; padding: 10px 16px 0; }
+  .grid { display: grid; grid-template-columns: 1fr 64px 64px; gap: 6px 8px; align-items: center; font-size: 14px; }
+  .grid input { width: 64px; padding: 7px 6px; font-size: 15px; text-align: right; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }
+  .grid .h { font-size: 11px; color: var(--muted); text-align: center; }
+  .order { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+  .row { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  input.cash { width: 100%; padding: 10px; font-size: 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); }
+  .empty { text-align: center; color: var(--muted); padding: 30px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+const app = document.getElementById('app');
+const KEYS = ['10x15', '15x21', '18x25', '20x30', '25x38', 'group', 'collage', 'free_g', 'free_c'];
+const SKEYS = ['10x15', '15x21', '18x25', '20x30', '25x38', 'group', 'collage'];
+let D = null, view = { page: 'list', filt: 'all', g: null };
+
+const rub = v => Math.round(v).toLocaleString('ru-RU').replace(/,/g, ' ');
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const title = k => ({ group: 'Групповые 18×25', collage: 'Коллажи 18×25' }[k] || k.replace('x', '×'));
+
+async function load() {
+  const d = new URLSearchParams(location.search).get('d');
+  if (!d) { app.innerHTML = '<div class="empty">Откройте приложение кнопкой «📱 Приложение» в боте.</div>'; return; }
+  try {
+    const bin = Uint8Array.from(atob(d.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+    const stream = new Blob([bin]).stream().pipeThrough(new DecompressionStream('deflate'));
+    D = JSON.parse(await new Response(stream).text());
+  } catch (e) { app.innerHTML = '<div class="empty">Не удалось прочитать данные. Нажмите «📋 Заказы» в боте и откройте приложение снова.</div>'; return; }
+  D.g.forEach(g => { g.calc = calc(g); });
+  render();
+}
+
+// тот же расчёт, что в orderbook_fill.py (garden_calc)
+function calc(g) {
+  const P = D.p, c = Object.fromEntries(KEYS.map((k, i) => [k, g.c[i] || 0]));
+  const price = { group: P.g, collage: P.c }; SKEYS.slice(0, 5).forEach((k, i) => price[k] = P.f[i]);
+  const paid = { ...c, group: Math.max(0, c.group - c.free_g), collage: Math.max(0, c.collage - c.free_c) };
+  const st = {}; SKEYS.forEach((k, i) => { const v = Math.min(g.s[i] || 0, paid[k]); if (v > 0) st[k] = v; });
+  const sp = p => Math.round(p * (100 - P.sd) / 100);
+  const reg = SKEYS.filter(k => paid[k] - (st[k] || 0) > 0).map(k => [title(k), paid[k] - (st[k] || 0), price[k]]);
+  const stl = Object.keys(st).map(k => [title(k), st[k], sp(price[k])]);
+  const regular = reg.reduce((a, x) => a + x[1] * x[2], 0), staff = stl.reduce((a, x) => a + x[1] * x[2], 0);
+  const org = Math.round(regular * P.org / 100), free = c.free_g + c.free_c;
+  const cash = g.o.reduce((a, o) => a + o[7], 0);
+  return { c, st, reg, stl, regular, staff, org, net: regular - org + staff, total: regular + staff, free, freeCost: free * P.cost, cash,
+           n: g.o.length, given: g.o.every(o => o[6]), ngiven: g.o.filter(o => o[6]).length, paid: g.o.every(o => o[4]) };
+}
+
+function send(obj) {
+  const s = JSON.stringify(obj);
+  if (tg && tg.sendData) tg.sendData(s);   // приложение закроется, бот запишет и ответит
+  else alert('Не в Telegram. Отправилось бы: ' + s);
+}
+function confirmThen(text, fn) {
+  if (tg && tg.showConfirm) tg.showConfirm(text, ok => ok && fn()); else if (confirm(text)) fn();
+}
+
+function badges(k) {
+  const pay = k.paid ? '<span class="b ok">✅ Киров</span>' : '<span class="b wait">⏳ Киров</span>';
+  const giv = k.given ? '<span class="b give">📦 Отдан</span>' : k.ngiven ? `<span class="b wait">📦 ${k.ngiven} из ${k.n}</span>` : '<span class="b no">🚚 Не отдан</span>';
+  const cs = k.total && k.cash >= k.total ? '<span class="b ok">💵 Собраны</span>' : k.cash ? '<span class="b wait">💵 Частично</span>' : '<span class="b no">💵 Не собраны</span>';
+  return pay + giv + cs;
+}
+
+function render() {
+  if (tg) { tg.BackButton[view.page === 'list' ? 'hide' : 'show'](); }
+  if (view.page === 'list') return renderList();
+  const g = D.g.find(x => x.id === view.g);
+  if (view.page === 'garden') return renderGarden(g);
+  if (view.page === 'edit') return renderEdit(g);
+  if (view.page === 'cash') return renderCash(g);
+}
+
+function renderList() {
+  const K = D.g.map(g => g.calc);
+  const tot = K.reduce((a, k) => a + k.total, 0), cash = K.reduce((a, k) => a + k.cash, 0), net = K.reduce((a, k) => a + k.net, 0);
+  const org = K.reduce((a, k) => a + k.org, 0), given = K.filter(k => k.given).length;
+  const F = { all: g => true, notg: g => !g.calc.given, given: g => g.calc.given, nocash: g => g.calc.cash < g.calc.total };
+  const names = { all: 'Все', notg: '🚚 Не отданы', given: '📦 Отданы', nocash: '💵 Не собраны' };
+  const shown = D.g.filter(F[view.filt]);
+  app.innerHTML = `<header><h1>Заказы по садам</h1><div class="muted">Данные на ${esc(D.t)}. Чтобы обновить — «📋 Заказы» в боте.</div></header>
+    <div class="totals">С клиентов: <b>${rub(tot)}</b> руб. · получено ${rub(cash)} · осталось ${rub(tot - cash)}<br>
+      Саду ${D.p.org}%: ${rub(org)} · <b>вам на руки ${rub(net)}</b> руб.<br>Отдано садов: ${given} из ${D.g.length}</div>
+    <div class="filters">${Object.keys(F).map(f => `<button class="chip ${f === view.filt ? 'on' : ''}" data-f="${f}">${names[f]} (${D.g.filter(F[f]).length})</button>`).join('')}</div>
+    ${shown.map(g => `<div class="card click" data-g="${g.id}"><div class="name">${esc(g.n)}</div>
+      <div class="muted">${g.o.length > 1 ? 'заказы ' : '№ '}${g.o.map(o => o[0]).join(', ')} · ${g.o.reduce((a, o) => a + o[3], 0)} отп.</div>
+      <div>Клиентам ${rub(g.calc.total)} · на руки ${rub(g.calc.net)}${g.calc.cash ? ' · получено ' + rub(g.calc.cash) : ''}</div>
+      <div class="badges">${badges(g.calc)}</div></div>`).join('') || '<div class="empty">Здесь пусто</div>'}`;
+  app.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { view.filt = b.dataset.f; render(); });
+  app.querySelectorAll('[data-g]').forEach(c => c.onclick = () => { view = { ...view, page: 'garden', g: c.dataset.g }; render(); scrollTo(0, 0); });
+}
+
+function renderGarden(g) {
+  const k = g.calc, rows = (L, cls) => L.map(([n, q, p]) => `<tr><td>${n}</td><td class="m">${q} × ${p}</td><td class="r">${rub(q * p)}</td></tr>`).join('');
+  app.innerHTML = `<button class="back" id="back">‹ Все сады</button>
+    <header><h1>${esc(g.n)}</h1><div class="badges">${badges(k)}</div></header>
+    <div class="card"><div class="sec">Дети без скидки</div><table>${rows(k.reg)}</table>
+      ${k.stl.length ? `<div class="sec">Дети сотрудников (−${D.p.sd}%)</div><table>${rows(k.stl)}</table>` : ''}
+      <div style="margin-top:8px">Без скидки ${rub(k.regular)} − ${D.p.org}% саду ${rub(k.org)} = ${rub(k.regular - k.org)}${k.staff ? `<br>Сотрудники: + ${rub(k.staff)} (саду не идёт)` : ''}</div>
+      <div class="big">Вам на руки: ${rub(k.net)} руб.</div>
+      <div>С клиентов ${rub(k.total)} · получено ${rub(k.cash)} · осталось ${rub(k.total - k.cash)}</div>
+      ${k.free ? `<div class="muted" style="margin-top:6px">Воспитателям бесплатно: ${k.free} шт. — себестоимость ${rub(k.freeCost)} руб.</div>` : ''}
+      ${g.note ? `<div class="muted" style="margin-top:4px">${esc(g.note)}</div>` : ''}</div>
+    <div class="btns">
+      <button class="btn ${k.given ? 'sec2' : 'give2'}" id="giv">${k.given ? '↩ Снять «отдан»' : '📦 Отдал в сад'}</button>
+      <button class="btn ${k.total && k.cash >= k.total ? 'sec2' : 'ok2'}" id="all">${k.total && k.cash >= k.total ? '↩ Снять наличные' : '💵 Все заплатили'}</button>
+      <button class="btn sec2" id="cash">💵 Ввести сумму</button>
+      <button class="btn sec2" id="edit">✏ Изменить расчёт</button></div>
+    <div class="card"><div class="sec">Заказы в Кирове (${g.o.length})</div>
+      ${g.o.map(o => `<div class="order"><div class="row"><b>${esc(o[1])} · № ${o[0]}</b>${o[4] ? '<span class="b ok">✅ Оплачен</span>' : '<span class="b wait">⏳ Ждёт оплаты</span>'}</div>
+        <div class="muted">печать ${rub(o[2])} руб. · ${o[3]} отп.${o[5] ? ' · оплатить до ' + esc(o[5]) : ''}${o[6] ? ' · отдан' : ''}</div>
+        <div class="muted">${esc(o[8])}</div>
+        <button class="btn sec2" style="margin-top:6px;padding:7px" data-paid="${o[0]}" data-v="${o[4] ? 0 : 1}">${o[4] ? '↩ Снять оплату' : '✅ Оплатил в Киров'}</button></div>`).join('')}</div>`;
+  document.getElementById('back').onclick = goBack;
+  document.getElementById('giv').onclick = () => confirmThen(k.given ? `Снять отметку «отдан» с ${g.n}?` : `${g.n}: всё отдано в сад?`,
+    () => send({ a: 'given', g: g.id, v: k.given ? 0 : 1 }));
+  document.getElementById('all').onclick = () => { const full = k.total && k.cash >= k.total;
+    confirmThen(full ? `Снять отметку наличных с ${g.n}?` : `${g.n}: клиенты заплатили всё — ${rub(k.total)} руб.?`, () => send({ a: 'cash', g: g.id, v: full ? 0 : k.total })); };
+  document.getElementById('cash').onclick = () => { view.page = 'cash'; render(); };
+  document.getElementById('edit').onclick = () => { view.page = 'edit'; render(); scrollTo(0, 0); };
+  app.querySelectorAll('[data-paid]').forEach(b => b.onclick = () => confirmThen(
+    (b.dataset.v === '1' ? 'Отметить оплаченным' : 'Снять оплату с') + ` заказ № ${b.dataset.paid}?`, () => send({ a: 'paid', g: g.id, no: b.dataset.paid, v: +b.dataset.v })));
+}
+
+function renderEdit(g) {
+  const k = g.calc, c = k.c;
+  const labels = { '10x15': '10×15', '15x21': '15×21', '18x25': '18×25', '20x30': '20×30', '25x38': '25×38', group: 'Групповые (всего)', collage: 'Коллажи (всего)',
+                   free_g: 'Бесплатно воспит. — групповых', free_c: 'Бесплатно воспит. — коллажей' };
+  app.innerHTML = `<button class="back" id="back">‹ ${esc(g.n)}</button>
+    <header><h1>Изменить расчёт</h1><div class="muted">${esc(g.n)} — весь сад. «Сотр.» — сколько из них детям сотрудников (−${D.p.sd}%, саду не идёт).</div></header>
+    <div class="card"><div class="grid"><div></div><div class="h">Всего</div><div class="h">Сотр.</div>
+      ${KEYS.map(key => `<div>${labels[key]}</div><input inputmode="numeric" data-c="${key}" value="${c[key]}">
+        ${SKEYS.includes(key) ? `<input inputmode="numeric" data-s="${key}" value="${k.st[key] || 0}">` : '<div></div>'}`).join('')}
+    </div><div id="err" style="color:var(--late);margin-top:8px"></div></div>
+    <div class="btns"><button class="btn" id="save">Сохранить</button></div>`;
+  document.getElementById('back').onclick = goBack;
+  document.getElementById('save').onclick = () => {
+    const num = el => parseInt(el.value || '0', 10);
+    const C = KEYS.map(key => num(app.querySelector(`[data-c="${key}"]`))), S = SKEYS.map(key => num(app.querySelector(`[data-s="${key}"]`)));
+    if ([...C, ...S].some(v => isNaN(v) || v < 0)) { document.getElementById('err').textContent = 'Только целые числа.'; return; }
+    const cc = Object.fromEntries(KEYS.map((key, i) => [key, C[i]]));
+    const lim = { ...cc, group: cc.group - cc.free_g, collage: cc.collage - cc.free_c };
+    const bad = SKEYS.filter((key, i) => S[i] > lim[key]);
+    if (lim.group < 0 || lim.collage < 0) { document.getElementById('err').textContent = 'Бесплатных больше, чем всего общих.'; return; }
+    if (bad.length) { document.getElementById('err').textContent = 'Сотрудников больше, чем платных: ' + bad.map(title).join(', '); return; }
+    send({ a: 'calc', g: g.id, c: C, s: S });
+  };
+}
+
+function renderCash(g) {
+  const k = g.calc;
+  app.innerHTML = `<button class="back" id="back">‹ ${esc(g.n)}</button>
+    <header><h1>Наличные</h1><div class="muted">${esc(g.n)}: с клиентов ${rub(k.total)} руб., уже получено ${rub(k.cash)}.</div></header>
+    <div class="card">Сколько получено ВСЕГО по саду, руб.:<br><input class="cash" id="v" inputmode="numeric" value="${k.cash || ''}">
+      <div class="muted" style="margin-top:6px">Или «+5000» — прибавить к полученному.</div><div id="err" style="color:var(--late)"></div></div>
+    <div class="btns"><button class="btn" id="save">Сохранить</button></div>`;
+  document.getElementById('back').onclick = goBack;
+  document.getElementById('save').onclick = () => {
+    const s = document.getElementById('v').value.trim().replace(/[\s ]/g, '');
+    if (!/^\+?\d+([.,]\d+)?$/.test(s)) { document.getElementById('err').textContent = 'Напишите число, например 12500 или +3000.'; return; }
+    const n = parseFloat(s.replace('+', '').replace(',', '.'));
+    send({ a: 'cash', g: g.id, v: s.startsWith('+') ? k.cash + n : n });
+  };
+}
+
+function goBack() { view.page = view.page === 'garden' ? 'list' : 'garden'; render(); }
+if (tg) tg.BackButton.onClick(goBack);
+load();
+</script>
+</body>
+</html>
