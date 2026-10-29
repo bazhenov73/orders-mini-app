@@ -132,7 +132,7 @@ function renderList() {
   const shown = D.g.filter(F[view.filt]);
   app.innerHTML = `<header><h1>Заказы по садам</h1><div class="muted">Данные на ${esc(D.t)}. Чтобы обновить — «📋 Заказы» в боте.</div></header>
     <div class="totals">С клиентов: <b>${rub(tot)}</b> руб. · получено ${rub(cash)} · осталось ${rub(tot - cash)}<br>
-      Процент детскому саду (${D.p.org}%): <b>${rub(org)}</b> руб.<br><b>Вам на руки: ${rub(net)}</b> руб.<br>Отдано садов: ${given} из ${D.g.length}</div>
+      Процент детскому саду (${D.p.org}%): <b>${rub(org)}</b> руб.<br>Дети сотрудников (−${D.p.sd}%): <b>${rub(K.reduce((a, k) => a + k.staff, 0))}</b> руб.<br><b>Вам на руки: ${rub(net)}</b> руб.<br>Отдано садов: ${given} из ${D.g.length}</div>
     <div class="filters">${Object.keys(F).map(f => `<button class="chip ${f === view.filt ? 'on' : ''}" data-f="${f}">${names[f]} (${D.g.filter(F[f]).length})</button>`).join('')}</div>
     ${shown.map(g => `<div class="card click" data-g="${g.id}"><div class="name">${esc(g.n)}</div>
       <div class="muted">${g.o.length > 1 ? 'заказы ' : '№ '}${g.o.map(o => o[0]).join(', ')} · ${g.o.reduce((a, o) => a + o[3], 0)} отп.</div>
@@ -150,6 +150,7 @@ function renderGarden(g) {
       ${k.stl.length ? `<div class="sec">Дети сотрудников (−${D.p.sd}%)</div><table>${rows(k.stl)}</table>` : ''}
       <div style="margin-top:8px">Без скидки ${rub(k.regular)} − ${D.p.org}% саду ${rub(k.org)} = ${rub(k.regular - k.org)}${k.staff ? `<br>Сотрудники: + ${rub(k.staff)} (саду не идёт)` : ''}</div>
       <div class="big">Процент детскому саду (${D.p.org}%): ${rub(k.org)} руб.</div>
+      <div class="big">Дети сотрудников (−${D.p.sd}%): ${rub(k.staff)} руб.</div>
       <div class="big">Вам на руки: ${rub(k.net)} руб.</div>
       <div>С клиентов ${rub(k.total)} · получено ${rub(k.cash)} · осталось ${rub(k.total - k.cash)}</div>
       ${k.free ? `<div class="muted" style="margin-top:6px">Воспитателям бесплатно: ${k.free} шт. — себестоимость ${rub(k.freeCost)} руб.</div>` : ''}
